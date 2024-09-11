@@ -1,0 +1,184 @@
+version: '3.8'
+
+services:
+  bitcoind:
+    container_name: bitcoind
+    image: bitcoin/bitcoind
+    volumes:
+      - /DATA/data/bitcoind-data:/bitcoin/.bitcoin
+    ports:
+      - "8332:8332"
+      - "8333:8333"
+    healthcheck:
+      test: ["CMD-SHELL", "bitcoin-cli getblockchaininfo > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "7"
+    networks:
+      - bitcoin_ordinals
+
+  postgres:
+    image: postgres:14
+    volumes:
+      - /DATA/data/opi-postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bitcoin_ordinals
+    restart: always
+    env_file:
+      - .env
+
+  main_index:
+    image: opi:latest
+    build: .
+    command: bash -c "cd /OPI/modules/main_index && python3 reset_init.py && node index.js"
+    volumes:
+      - /DATA/data/bitcoind-data:/var/lib/bitcoin
+      - /DATA/data/opi-main-index:/var/lib/ordinals
+      - ./log_file.txt:/OPI/ord/target/release/log_file.txt
+      - ./log_file_index.txt:/OPI/ord/target/release/log_file_index.txt
+    depends_on:
+      - postgres
+      - bitcoind
+    environment:
+      BITCOIND_HOST: bitcoind
+      BITCOIND_PORT: 8332
+    networks:
+      - bitcoin_ordinals
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env
+    restart: on-failure
+
+  brc20_index:
+    image: opi:latest
+    build: .
+    command: bash -c "cd /OPI/modules/brc20_index && python3 reset_init.py && python3 brc20_index.py"
+    depends_on:
+      - postgres
+      - bitcoind
+    networks:
+      - bitcoin_ordinals
+    env_file:
+      - .env
+    restart: on-failure
+  brc20_api:
+    image: opi:latest
+    build: .
+    command: bash -c "cd /OPI/modules/brc20_api && node api.js"
+    depends_on:
+      - brc20_index
+    networks:
+      - bitcoin_ordinals
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env
+
+  runes_index:
+    image: opi:latest
+    build: .
+    command: bash -c "cd /OPI/modules/runes_index && python3 reset_init.py && node index_runes.js"
+    volumes:
+      - /DATA/data/bitcoind-data:/var/lib/bitcoin
+      - /DATA/data/opi-data-runes:/var/lib/ordinals
+      - ./log_file.txt:/OPI/ord/target/release/log_file.txt
+      - ./log_file_index.txt:/OPI/ord/target/release/log_file_index.txt
+    depends_on:
+      - postgres
+      - bitcoind
+    networks:
+      - bitcoin_ordinals
+    env_file:
+      - .env
+    restart: on-failure
+  runes_api:
+    image: opi:latest
+    build: .
+    command: bash -c "cd /OPI/modules/runes_api && node api.js"
+    depends_on:
+      - runes_index
+    networks:
+      - bitcoin_ordinals
+    ports:
+      - "3003:3000"
+    env_file:
+      - .env
+
+  # bitmap_index:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/bitmap_index && python3 bitmap_index.py"
+  #   depends_on:
+  #     - postgres
+  #     - bitcoind
+  #   networks:
+  #     - bitcoin_ordinals
+
+  # bitmap_api:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/bitmap_api && node api.js"
+  #   depends_on:
+  #     - bitmap_index
+  #   networks:
+  #     - bitcoin_ordinals
+  #   ports:
+  #     - "3004:3000"
+
+  # sns_index:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/sns_index && python3 sns_index.py"
+  #   depends_on:
+  #     - postgres
+  #     - bitcoind
+  #   networks:
+  #     - bitcoin_ordinals
+
+  # sns_api:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/sns_api && node api.js"
+  #   depends_on:
+  #     - sns_index
+  #   networks:
+  #     - bitcoin_ordinals
+  #   ports:
+  #     - "3005:3000"
+
+  # pow20_index:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/pow20_index && python3 pow20_index.py"
+  #   depends_on:
+  #     - postgres
+  #     - bitcoind
+  #   networks:
+  #     - bitcoin_ordinals
+
+  # pow20_api:
+  #   image: opi:latest
+  #   build: .
+  #   command: bash -c "cd /OPI/modules/pow20_api && node api.js"
+  #   depends_on:
+  #     - pow20_index
+  #   networks:
+  #     - bitcoin_ordinals
+  #   ports:
+  #     - "3006:3000"
+
+networks:
+  bitcoin_ordinals:
